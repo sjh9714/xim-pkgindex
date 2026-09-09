@@ -40,7 +40,7 @@ jobs:
       - name: Verify the unchanged PR recipe and bounded regression tests
         shell: bash
         run: |
-          git diff --exit-code 56ef679a274e7d25ed4e6bb6512dcbb94f895134 -- pkgs/d/dsh.lua tests/d/test_dsh.py
+          git diff --exit-code 0cba908622327e86652980c93b40bcb8702a1216 -- pkgs/d/dsh.lua tests/d/test_dsh.py
           python -m pip install pytest
           python -m pytest tests/d/test_dsh.py -m 'static or isolation' -q --tb=short
       - name: Extract the verified official Linux xlings archive

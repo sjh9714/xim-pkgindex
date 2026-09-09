@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 
 const windows = process.platform === 'win32';
 const xlingsHome = process.env.XLINGS_HOME;
@@ -62,20 +61,24 @@ try {
   const host = JSON.parse(fs.readFileSync(path.join(payload, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')));
   assert.equal(host.version, '0.1.2-rc.1');
   const nativePath = path.join(payload, 'node_modules', 'node-pty');
-  try {
-    createRequire(import.meta.url)(nativePath);
-  } catch (error) {
-    for (const relative of ['build/Release/pty.node', `prebuilds/${process.platform}-${process.arch}/pty.node`]) {
-      const candidate = path.join(nativePath, relative);
-      console.log(JSON.stringify({ nativeCandidate: relative, exists: fs.existsSync(candidate) }));
-      if (fs.existsSync(candidate)) {
-        try { createRequire(import.meta.url)(candidate); }
-        catch (cause) { console.log(redact(cause.message)); }
+  // Probe in a short-lived child: loading a native DLL in this test process
+  // would itself prevent Windows from removing the payload later.
+  run(process.execPath, ['-e', `
+    const fs = require('node:fs'), path = require('node:path');
+    const nativePath = process.argv[1];
+    try { require(nativePath); }
+    catch (error) {
+      for (const relative of ['build/Release/pty.node', 'prebuilds/' + process.platform + '-' + process.arch + '/pty.node']) {
+        const candidate = path.join(nativePath, relative);
+        console.log(JSON.stringify({ nativeCandidate: relative, exists: fs.existsSync(candidate) }));
+        if (fs.existsSync(candidate)) {
+          try { require(candidate); } catch (cause) { console.log(cause.message); }
+        }
       }
+      throw error;
     }
-    throw error;
-  }
-  console.log('Native node-pty load passed in the acceptance runner. The shim boot below uses the recipe-bound Node.');
+    console.log('Native node-pty load passed in an isolated child.');
+  `, nativePath]);
   assert.match(run('dsh', ['--profile', 'web', '--dump-config'], { quiet: true }), /@deepseek-ai\/dsh-base/);
   fs.mkdirSync(dshHome, { recursive: true });
   const sentinel = path.join(dshHome, 'user-data-sentinel.txt');
@@ -112,7 +115,7 @@ try {
   await assert.rejects(fetch(endpoint, { signal: AbortSignal.timeout(1000) }));
   run(binary, ['remove', 'local:dsh@0.1.2-rc.1', '-y']);
   installed = false;
-  assert.ok(!fs.existsSync(path.join(payload, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')));
+  assert.ok(!fs.existsSync(payload), 'xlings left a partial host payload after removal');
   assert.equal(fs.readFileSync(sentinel, 'utf8'), 'preserve temporary user data\n');
   console.log('Host payload removed; temporary user data preserved; web port closed.');
   console.log('No model task, Movein composition, or Blue/Minimal TUI acceptance is claimed.');
