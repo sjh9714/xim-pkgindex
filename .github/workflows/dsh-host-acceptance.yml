@@ -68,9 +68,11 @@ jobs:
           }
           $target = Join-Path $env:RUNNER_TEMP 'dsh-host-acceptance-xlings'
           Expand-Archive -Path $archive -DestinationPath $target
-          $entries = @(Get-ChildItem $target -Recurse -File -Filter xlings.exe | Where-Object { $_.Directory.Name -eq 'bin' })
-          if ($entries.Count -ne 1) { throw 'Expected one official bin/xlings.exe' }
-          $xlingsRoot = $entries[0].Directory.Parent.FullName
+          $xlingsRoot = Join-Path $target 'xlings-2026.9.5.1-windows-x86_64'
+          if (-not (Test-Path (Join-Path $xlingsRoot 'bin/xlings.exe'))) {
+            Get-ChildItem $target -Recurse -File -Filter xlings.exe | Select-Object FullName
+            throw 'Verified archive did not contain the expected bin/xlings.exe'
+          }
           Add-Content $env:GITHUB_ENV "XLINGS_HOME=$xlingsRoot"
           Add-Content $env:GITHUB_PATH "$xlingsRoot\bin"
           Add-Content $env:GITHUB_PATH "$xlingsRoot\subos\default\bin"
