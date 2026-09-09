@@ -1,0 +1,81 @@
+name: DSH host acceptance (fork only)
+
+on:
+  push:
+    branches: [codex/dsh-host-012rc1-acceptance]
+    paths:
+      - .github/workflows/dsh-host-acceptance.yml
+      - tests/d/dsh_host_acceptance.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    if: github.repository == 'sjh9714/xim-pkgindex'
+    name: DSH host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      XLINGS_NON_INTERACTIVE: '1'
+      DSH_HOME: ${{ runner.temp }}/dsh-host-acceptance-profile
+      DEEPSEEK_API_KEY: ''
+      pnpm_config_minimum_release_age_strict: 'true'
+      pnpm_config_strict_dep_builds: 'true'
+      pnpm_config_store_dir: ${{ runner.temp }}/dsh-host-acceptance-store
+      pnpm_config_cache_dir: ${{ runner.temp }}/dsh-host-acceptance-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the unchanged PR recipe and bounded regression tests
+        shell: bash
+        run: |
+          git diff --exit-code 56ef679a274e7d25ed4e6bb6512dcbb94f895134 -- pkgs/d/dsh.lua tests/d/test_dsh.py
+          python -m pip install pytest
+          python -m pytest tests/d/test_dsh.py -m 'static or isolation' -q --tb=short
+      - name: Extract the verified official Linux xlings archive
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/xlings-2026.9.5.1-linux-x86_64.tar.gz"
+          curl -fL --retry 2 -o "$archive" https://github.com/openxlings/xlings/releases/download/v2026.9.5.1/xlings-2026.9.5.1-linux-x86_64.tar.gz
+          echo "f002160f9783e5fcae818273b98dd4a79be40ec4c1564082441779d0f9f59835  $archive" | sha256sum -c -
+          target="$RUNNER_TEMP/dsh-host-acceptance-xlings"
+          mkdir "$target"
+          tar -xzf "$archive" --strip-components=1 -C "$target"
+          test -x "$target/bin/xlings"
+          echo "XLINGS_HOME=$target" >> "$GITHUB_ENV"
+          echo "$target/bin" >> "$GITHUB_PATH"
+          echo "$target/subos/default/bin" >> "$GITHUB_PATH"
+      - name: Extract the verified official Windows xlings archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'xlings-2026.9.5.1-windows-x86_64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/openxlings/xlings/releases/download/v2026.9.5.1/xlings-2026.9.5.1-windows-x86_64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '762555e0ea0206cd35bf354ef8bb2f1f197d0d4ffdc98e39852550171d06e55f') {
+            throw 'Official archive checksum mismatch'
+          }
+          $target = Join-Path $env:RUNNER_TEMP 'dsh-host-acceptance-xlings'
+          Expand-Archive -Path $archive -DestinationPath $target
+          $entries = @(Get-ChildItem $target -Recurse -File -Filter xlings.exe | Where-Object { $_.Directory.Name -eq 'bin' })
+          if ($entries.Count -ne 1) { throw 'Expected one official bin/xlings.exe' }
+          $xlingsRoot = $entries[0].Directory.Parent.FullName
+          Add-Content $env:GITHUB_ENV "XLINGS_HOME=$xlingsRoot"
+          Add-Content $env:GITHUB_PATH "$xlingsRoot\bin"
+          Add-Content $env:GITHUB_PATH "$xlingsRoot\subos\default\bin"
+      - name: Install the exact recipe, authenticate Web, stop and uninstall
+        run: node tests/d/dsh_host_acceptance.mjs
