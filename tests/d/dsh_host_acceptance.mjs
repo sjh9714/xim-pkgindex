@@ -115,6 +115,22 @@ try {
   await assert.rejects(fetch(endpoint, { signal: AbortSignal.timeout(1000) }));
   run(binary, ['remove', 'local:dsh@0.1.2-rc.1', '-y']);
   installed = false;
+  // xlings marks a Windows payload incomplete when a recently stopped process
+  // or antivirus briefly holds a file. Use only its documented remove retry;
+  // never delete around the package manager or relax the final absence check.
+  if (windows && fs.existsSync(payload)) {
+    console.log('First remove left a partial payload; checking bounded cleanup.');
+    console.log(JSON.stringify({ remaining: fs.readdirSync(payload, { recursive: true }).slice(0, 30) }));
+    const processes = spawnSync('pwsh', ['-NoProfile', '-Command',
+      '$p=$env:DSH_TEST_PAYLOAD; @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($p) } | Select-Object ProcessId,ParentProcessId,Name) | ConvertTo-Json -Compress'],
+    { env: { ...env, DSH_TEST_PAYLOAD: payload }, encoding: 'utf8', timeout: 10_000 });
+    console.log(redact(processes.stdout || processes.stderr));
+    for (let attempt = 1; attempt <= 3 && fs.existsSync(payload); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      run(binary, ['remove', 'local:dsh@0.1.2-rc.1', '-y']);
+      console.log(`Documented remove retry ${attempt}: remains=${fs.existsSync(payload)}`);
+    }
+  }
   assert.ok(!fs.existsSync(payload), 'xlings left a partial host payload after removal');
   assert.equal(fs.readFileSync(sentinel, 'utf8'), 'preserve temporary user data\n');
   console.log('Host payload removed; temporary user data preserved; web port closed.');
