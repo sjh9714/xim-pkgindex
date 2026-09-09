@@ -62,7 +62,19 @@ try {
   const host = JSON.parse(fs.readFileSync(path.join(payload, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')));
   assert.equal(host.version, '0.1.2-rc.1');
   const nativePath = path.join(payload, 'node_modules', 'node-pty');
-  createRequire(import.meta.url)(nativePath);
+  try {
+    createRequire(import.meta.url)(nativePath);
+  } catch (error) {
+    for (const relative of ['build/Release/pty.node', `prebuilds/${process.platform}-${process.arch}/pty.node`]) {
+      const candidate = path.join(nativePath, relative);
+      console.log(JSON.stringify({ nativeCandidate: relative, exists: fs.existsSync(candidate) }));
+      if (fs.existsSync(candidate)) {
+        try { createRequire(import.meta.url)(candidate); }
+        catch (cause) { console.log(redact(cause.message)); }
+      }
+    }
+    throw error;
+  }
   console.log('Native node-pty load passed in the acceptance runner. The shim boot below uses the recipe-bound Node.');
   assert.match(run('dsh', ['--profile', 'web', '--dump-config'], { quiet: true }), /@deepseek-ai\/dsh-base/);
   fs.mkdirSync(dshHome, { recursive: true });

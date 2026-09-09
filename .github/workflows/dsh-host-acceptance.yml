@@ -23,12 +23,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     env:
       XLINGS_NON_INTERACTIVE: '1'
-      DSH_HOME: ${{ runner.temp }}/dsh-host-acceptance-profile
       DEEPSEEK_API_KEY: ''
       pnpm_config_minimum_release_age_strict: 'true'
       pnpm_config_strict_dep_builds: 'true'
-      pnpm_config_store_dir: ${{ runner.temp }}/dsh-host-acceptance-store
-      pnpm_config_cache_dir: ${{ runner.temp }}/dsh-host-acceptance-cache
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,4 +75,8 @@ jobs:
           Add-Content $env:GITHUB_PATH "$xlingsRoot\bin"
           Add-Content $env:GITHUB_PATH "$xlingsRoot\subos\default\bin"
       - name: Install the exact recipe, authenticate Web, stop and uninstall
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-host-acceptance-profile
+          pnpm_config_store_dir: ${{ runner.temp }}/dsh-host-acceptance-store
+          pnpm_config_cache_dir: ${{ runner.temp }}/dsh-host-acceptance-cache
         run: node tests/d/dsh_host_acceptance.mjs
